@@ -3,14 +3,12 @@
 
 #include <QWidget>
 #include <QTcpSocket>
-
 #include <QTextEdit>
 #include <QLineEdit>
 #include <QPushButton>
-
-
 #include <QFile>
 #include <QLabel>
+
 //=======================================================================
 
 class Client : public QWidget
@@ -19,34 +17,35 @@ class Client : public QWidget
 
 private:
     QTcpSocket*     p_tcpSocket;
-    QTextEdit*      p_txtInfo;
-    QLineEdit*      p_txtInput;
-    QPushButton*    p_btnconnect;
-    QPushButton*    p_btnOpenFile;
 
+    QTextEdit*      ptxtInfo;
+
+    QPushButton*    pbtnconnect;
+    QPushButton*    pbtnOpenFile;
+    QPushButton*    pbtnSendPicture;
+
+    QLineEdit*      ptxtInputHost;
+    QLineEdit*      ptxtInputPort;
 
     quint32         nextBlockSize;
-    //quint16         nextBlockSize;
-///////////////////////////////////////
+
     QFile*          p_localFile;
     QString         fileName;
+    QString         currentImageName;
 
-    QImage image;
-    QString currentImageName;
-
-    QLabel* p_lbl;
+protected:
+    bool isHostAddress(const QString& ip);
+    bool isPort(const QString& port);
 
 public:
     explicit Client(QWidget *parent = nullptr);
+    ~Client();
 
 private slots:
 
-    void slotReadyRead ();
-    void slotError (QAbstractSocket::SocketError);
-    void slotSendToServer();
-    void slotConnected();
+    void slotReadyRead();
+    void slotError(QAbstractSocket::SocketError);
     void slotBtnConnectClicked();
-
     void slotOpenFile();
     void slotSendPictureToServer();
 };

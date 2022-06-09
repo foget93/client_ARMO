@@ -1,180 +1,264 @@
 #include "client.h"
-#include <QVBoxLayout>
+
 #include <QPushButton>
 #include <QLabel>
 #include <QTime>
-
 #include <QFileDialog>
-/*
-private:
-    QTcpSocket* p_tcpSocket;
-    QTextEdit*  p_txtInfo;
-    QLineEdit*  p_txtInput;
-    quint16     nextBlockSize;
+#include <QVBoxLayout>
+#include <QHBoxLayout>
+#include <QRegularExpression>
+#include <QMessageBox>
 
-private slots:
-    void slotReadyRead ();
-    void slotError (QAbstractSocket::SocketError);
-    void slotSendToServer();
-    void slotConnected();
-*/
+bool Client::isHostAddress(const QString &ip)
+{
+    QRegularExpression regForIp("[0-9]{1,3}\\.[0-9]{1,3}\\.[0-9]{1,3}\\.[0-9]{1,3}$");
+    QRegularExpressionMatch matchIp = regForIp.match(ip); // проверка формата строки ip
+
+    if (matchIp.hasMatch()) { //проверка диапазона
+        QStringList list = ip.split(".");
+        for (auto& str : list) {
+            if (str.toInt() > 255 || str.toInt() < 0 )
+                return false;
+        }
+        return true;
+    }
+    else
+        return false;
+}
+
+//============================================================
+
+bool Client::isPort(const QString& port)
+{
+    //протокол TCP под port 16 bit => [1..65535] включительно, [0] - отсутствие порта
+    bool convertingOk;
+    int portDigit = port.toInt(&convertingOk);
+
+    if  (!convertingOk || portDigit > 65535 || portDigit < 1)
+        return false;
+    return true;
+}
+
+//============================================================
+
 Client::Client(QWidget *parent)
     : QWidget(parent), nextBlockSize{0}
 {
+    //===========настройка gui===========
+    this->setWindowTitle("Client");
+    this->resize(400,600);
+
+    pbtnconnect = new QPushButton("&Connect");
+    pbtnOpenFile = new QPushButton("Open File");
+    pbtnSendPicture = new QPushButton("&Send");
+
+    ptxtInfo = new QTextEdit;
+    ptxtInfo->setReadOnly(true);
+
+    QLabel* lblHost = new QLabel("ip");
+    QLabel* lblPort = new QLabel("port");
+
+    ptxtInputHost   = new QLineEdit("127.0.0.1");
+    ptxtInputPort   = new QLineEdit("2323");
+
+    //Layoutsetup
+    QHBoxLayout* hostLayout = new QHBoxLayout;
+    QHBoxLayout* portLayout = new QHBoxLayout;
+    hostLayout->addWidget(lblHost);
+    hostLayout->addStretch(3);
+    hostLayout->addWidget(ptxtInputHost);
+
+
+    portLayout->addWidget(lblPort);
+    portLayout->addStretch(3);
+    portLayout->addWidget(ptxtInputPort); //lbl host&&port + line edit host&&port
+
+
+    QVBoxLayout* pleftvLayout = new QVBoxLayout;
+    pleftvLayout->addLayout(hostLayout);
+    pleftvLayout->addLayout(portLayout);
+    pleftvLayout->addWidget(ptxtInfo); // layouts + txtInfo
+
+    QVBoxLayout* prightLayout = new QVBoxLayout;
+    prightLayout->addWidget(pbtnconnect,3);
+    prightLayout->addWidget(pbtnOpenFile,3);
+    prightLayout->addWidget(pbtnSendPicture,3);
+    prightLayout->addStretch(1);//buttons right
+
+    QHBoxLayout* pbossLayout = new QHBoxLayout;
+    pbossLayout->addLayout(pleftvLayout);
+    pbossLayout->addLayout(prightLayout);
+    //pbossLayout->addStretch(3);
+
+    this->setLayout(pbossLayout);
+
+//============================================================
+
     p_tcpSocket = new QTcpSocket(this);
-    p_btnconnect = new QPushButton("&Connect");
 
-    p_btnOpenFile = new QPushButton("Open File");
+    connect (pbtnOpenFile,  &QPushButton::clicked,
+             this,          &Client::slotOpenFile
+            );// кликед кнопки "открыть файл" ->слот
 
-    connect (p_btnOpenFile, &QPushButton::clicked,
-             this,          &Client::slotOpenFile);
-
-    connect (p_btnconnect,   &QPushButton::clicked,
-             this,          &Client::slotBtnConnectClicked);
-    //p_tcpSocket->connectToHost(strHost, nPort);
-
-    connect(p_tcpSocket,    &QTcpSocket::connected,
-            this,           &Client::slotConnected
-            );
+    connect (pbtnconnect,   &QPushButton::clicked,
+             this,          &Client::slotBtnConnectClicked
+            );//кнопка конекта
 
     connect(p_tcpSocket,    &QTcpSocket::readyRead,
             this,           &Client::slotReadyRead
-            );
+            );// ответ от сервера
 
     connect(p_tcpSocket,    &QTcpSocket::errorOccurred,
             this,           &Client::slotError
-            );
+            );//обработка ошибок
 
-    p_txtInfo = new QTextEdit;
-    p_txtInput = new QLineEdit;
-
-    p_txtInfo->setReadOnly(true);
-
-//    QPushButton* pcmd = new QPushButton("&Send");
-//    connect (pcmd, &QPushButton::clicked,
-//             this, &Client::slotSendToServer
-//             );
-
-    QPushButton* pcmd = new QPushButton("&Send");
-    connect (pcmd, &QPushButton::clicked,
-             this, &Client::slotSendPictureToServer
-             );
-
-//    connect (p_txtInput,    &QLineEdit::returnPressed,
-//             this,          &Client::slotSendToServer
-//             );
-
-    p_lbl = new QLabel("For Picture");
-
-    //Layoutsetup
-    QVBoxLayout* pvbxLayout = new QVBoxLayout;
-    pvbxLayout->addWidget(p_btnconnect);
-    pvbxLayout->addWidget(p_btnOpenFile);
-    pvbxLayout->addWidget(new QLabel("<H1>Client</H1>"));
-    pvbxLayout->addWidget(p_txtInfo);
-    pvbxLayout->addWidget(p_txtInput);
-    pvbxLayout->addWidget(pcmd);
-
-    pvbxLayout->addWidget(p_lbl);
-
-    this->setLayout(pvbxLayout);
-
+    connect (pbtnSendPicture,   &QPushButton::clicked,
+             this,              &Client::slotSendPictureToServer
+             );//отправка картинки по кнопке
 }
+
+//============================================================
+
+Client::~Client()
+{
+    if (this->p_tcpSocket!=nullptr) {
+            this->p_tcpSocket->disconnectFromHost();
+            if(this->p_tcpSocket->state() != QAbstractSocket::UnconnectedState)
+                this->p_tcpSocket->waitForDisconnected(3000);
+            delete this->p_tcpSocket;
+    }//не обязательно
+}
+
+//============================================================
 
 void Client::slotReadyRead()
 {
+/*
+ * Цикл for нужен потому, что не все высланные сервером данные могут прийти одновременно.
+ * Клиент должен "уметь" получать как весь блок целиком, так и часть блока, а так же все блоки сразу.
+ * Каждый переданный блок начинается с nextBlockSize.
+ * Размер блока (nextBlockSize) считывается при условии p_tcpSocket->bytesAvailable() не меньше 4 байт
+ * и nextBlockSize == 0. Далее проверяем этот размер с p_tcpSocket->bytesAvailable() и считываем+выводим сообщение
+*/
     QDataStream in (p_tcpSocket);
     in.setVersion(QDataStream::Qt_6_2);
 
     for (;;) {
         if (!nextBlockSize) {
-            if (p_tcpSocket->bytesAvailable() < (int)sizeof(quint16))
+            if (p_tcpSocket->bytesAvailable() < static_cast<qint64>(sizeof(quint32)) )
                 break;
 
             in >> nextBlockSize;
         }
+
         if (p_tcpSocket->bytesAvailable() < nextBlockSize)
             break;
 
-        QTime time;
         QString str;
-        in >> time >> str;
+        in >>  str;
 
-        p_txtInfo->append(time.toString() + " " + str);
-        nextBlockSize = 0;
+        ptxtInfo->append(str);
+        nextBlockSize = 0; // анализ блока завершается тут
     }
 }
+
+//============================================================
 
 void Client::slotError(QAbstractSocket::SocketError err)
 {
     QString strError =
-            "Error: " + (err == QAbstractSocket::HostNotFoundError ?
-                             "The host was not found." :
+            QTime::currentTime().toString() +
+            " Ошибка: " + (err == QAbstractSocket::HostNotFoundError ?
+                             "Хост не найден." :
                              err == QAbstractSocket::RemoteHostClosedError ?
-                                 "The remote host is closed." :
+                                 "Хост закрыт." :
                                  err == QAbstractSocket::ConnectionRefusedError ?
-                                     "The connection was refused." :
+                                     "В соединении отказано." :
                                      QString(p_tcpSocket->errorString())
                                      );
-    p_txtInfo->append(strError);
+    ptxtInfo->append(strError);
+    ptxtInputHost->setReadOnly(false);
+    ptxtInputPort->setReadOnly(false);
 }
 
-void Client::slotSendToServer()
-{
-    QByteArray arrBlock;
-    QDataStream out (&arrBlock, QIODevice::WriteOnly);
-    out.setVersion(QDataStream::Qt_6_2);
-
-    out << quint16(0) << QTime::currentTime() << p_txtInput->text();
-
-    out.device()->seek(0);
-    out << quint16(arrBlock.size() - sizeof(quint16));
-
-    p_tcpSocket->write(arrBlock);
-    p_txtInput->clear();
-}
-
-void Client::slotConnected()
-{
-    p_txtInfo->append("Received the connected() signal");
-}
+//============================================================
 
 void Client::slotBtnConnectClicked()
 {
-    p_tcpSocket->connectToHost("localhost", 2323);
+    QString ip = ptxtInputHost->text();
+    QString port = ptxtInputPort->text();
+
+    if (!isHostAddress(ip)) {
+        QMessageBox::critical(0,"Ошибка","Введён некорректный ip адрес.");
+        return;
+    }
+    else if (!isPort(port)) {
+        QMessageBox::critical(0,"Ошибка","Введён некорректный номер порта.");
+        return;
+    }
+    else {
+        p_tcpSocket->connectToHost(ip, port.toInt()); // <----соединение тут
+
+        ptxtInputHost->setReadOnly(true);
+        ptxtInputPort->setReadOnly(true);
+    }
+
 }
-//==================================================
+
+//============================================================
+
 void Client::slotOpenFile()
 {
-    p_lbl->clear();
+    /*Читаем путь к выбранному файлу(fileName) + отрезаем имя файла (currentImageName) */
+    currentImageName = "";
     this->fileName = QFileDialog::getOpenFileName(this);
 
     if (!fileName.isEmpty())
         this->currentImageName = fileName.right(fileName.size()
-                                                - fileName.lastIndexOf('\\') - 1);
-
-    QImage image(fileName);
-    p_lbl->setPixmap(QPixmap::fromImage(image));
+                                                - fileName.lastIndexOf('/') - 1);
+    if(currentImageName != "")
+        ptxtInfo->append(QString("%1 Файл %2 загружен.")
+                         .arg(QTime::currentTime().toString())
+                         .arg(currentImageName)
+                        );
 }
+
 //============================================================
+
 void Client::slotSendPictureToServer()
 {
-    QByteArray arrBlock;
-    QDataStream out (&arrBlock, QIODevice::WriteOnly);
-    out.setVersion(QDataStream::Qt_6_2);
+/*
+ * По аналогии с void Client::slotReadyRead().
+ * Нюанс: вместо реального размера кидаем 0, потом двигаем каретку и записываем реальный размер.
+ * Далее запись в сокет.
+*/
+    if (p_tcpSocket->socketDescriptor() > 0) { //Returns the native socket descriptor of the QAbstractSocket object if this is available; otherwise returns -1.
+        QByteArray arrBlock;
+        QDataStream out (&arrBlock, QIODevice::WriteOnly);
+        out.setVersion(QDataStream::Qt_6_2);
 
-    out << quint32(0) << QImage(fileName);
+        QTime time = QTime::currentTime();
+        out << quint32(0) << currentImageName << QImage(fileName) << time ;
 
-    out.device()->seek(0);
-    out << quint32(arrBlock.size() - sizeof(quint32));
+        out.device()->seek(0);
+        out << quint32(arrBlock.size() - sizeof(quint32));
 
-    p_tcpSocket->write(arrBlock);
+        p_tcpSocket->write(arrBlock);
 
-    if(out.status() != QDataStream::Ok)
-        p_txtInfo->setText("Error QDataStream");
-    //p_txtInput->clear();
+        if (out.status() != QDataStream::Ok)
+            ptxtInfo->append("Error QDataStream");
 
+        if (currentImageName != "")
+            ptxtInfo->append(time.toString()
+                              + " " + currentImageName
+                              +" отправлен.");
+        fileName.clear();
+        currentImageName.clear();
+    }
+    else
+        ptxtInfo->append("Пожалуйста, сначала подключитесь к серверу.");
 }
+
 //============================================================
 
 
